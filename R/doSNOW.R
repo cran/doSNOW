@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2008-2009, REvolution Computing, Inc.
+# Copyright (c) 2008-2010, Revolution Analytics
 #
 # This is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License as published
@@ -54,7 +54,13 @@ workerInit <- function(expr, exportenv, packages) {
 
 evalWrapper <- function(args) {
   lapply(names(args), function(n) assign(n, args[[n]], pos=.doSnowGlobals$exportenv))
-  eval(.doSnowGlobals$expr, envir=.doSnowGlobals$exportenv)
+  tryCatch(eval(.doSnowGlobals$expr, envir=.doSnowGlobals$exportenv), error=function(e) e)
+}
+
+comp <- if (getRversion() < "2.13.0") {
+  function(expr, ...) expr
+} else {
+  compiler::compile
 }
 
 doSNOW <- function(obj, expr, envir, data) {
@@ -113,8 +119,11 @@ doSNOW <- function(obj, expr, envir, data) {
     }
   }
 
+  # compile the expression if we're using R 2.13.0 or greater
+  xpr <- comp(expr, env=envir, options=list(suppressUndefined=TRUE))
+
   # send exports to workers
-  r <- clusterCall(cl, workerInit, expr, exportenv, obj$packages)
+  r <- clusterCall(cl, workerInit, xpr, exportenv, obj$packages)
   for (emsg in r) {
     if (!is.null(emsg))
       stop('worker initialization failed: ', emsg)
