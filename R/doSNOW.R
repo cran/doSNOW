@@ -54,10 +54,37 @@ workerInit <- function(expr, exportenv, packages) {
 
 evalWrapper <- function(args) {
   exportEnv <- .doSnowGlobals$exportenv
-  attach(exportEnv)
-  on.exit(detach(exportEnv))
   lapply(names(args), function(n) assign(n, args[[n]], pos=.doSnowGlobals$exportenv))
   tryCatch(eval(.doSnowGlobals$expr, envir=.doSnowGlobals$exportenv), error=function(e) e)
+}
+
+# This function takes the place of workerInit and evalWrapper when
+# preschedule is enabled.  It is executed by the master via clusterApply
+# such that there is a single chunked task for each worker in the
+# cluster, rather than using clusterCall to initialize the workers and
+# clusterApplyLB to compute the tasks one-by-one.  This strategy can be
+# significantly more efficient when there are many small tasks, and is
+# very similar to the default behavior of mclapply.
+workerPreschedule <- function(largs, expr, exportenv, packages) {
+  parent.env(exportenv) <- globalenv()
+  task <- function(args) {
+    lapply(names(args), function(n) assign(n, args[[n]], pos=exportenv))
+    eval(expr, envir=exportenv)
+  }
+
+  tryCatch({
+    # load all necessary packages
+    for (p in packages)
+      library(p, character.only=TRUE)
+
+    # execute all of the tasks
+    lapply(largs, task)
+  },
+  error=function(e) {
+    # only one exception was thrown, but we don't know which one,
+    # so we'll return it for all of the tasks
+    lapply(seq_along(largs), function(i) e)
+  })
 }
 
 comp <- if (getRversion() < "2.13.0") {
@@ -68,13 +95,34 @@ comp <- if (getRversion() < "2.13.0") {
 
 doSNOW <- function(obj, expr, envir, data) {
   cl <- data
+  preschedule <- FALSE
 
   if (!inherits(obj, 'foreach'))
     stop('obj must be a foreach object')
 
   it <- iter(obj)
-  argsList <- as.list(it)
   accumulator <- makeAccum(it)
+
+  # check for snow-specific options
+  options <- obj$options$snow
+  if (!is.null(options)) {
+    nms <- names(options)
+    recog <- nms %in% c('preschedule')
+    if (any(!recog))
+      warning(sprintf('ignoring unrecognized snow option(s): %s',
+                      paste(nms[!recog], collapse=', ')), call.=FALSE)
+
+    if (!is.null(options$preschedule)) {
+      if (!is.logical(options$preschedule) ||
+          length(options$preschedule) != 1) {
+        warning('preschedule must be logical value', call.=FALSE)
+      } else {
+        if (obj$verbose)
+          cat(sprintf('bundling all tasks into %d chunks\n', length(cl)))
+        preschedule <- options$preschedule
+      }
+    }
+  }
 
   # setup the parent environment by first attempting to create an environment
   # that has '...' defined in it with the appropriate values
@@ -117,23 +165,43 @@ doSNOW <- function(obj, expr, envir, data) {
     for (sym in export) {
       if (!exists(sym, envir, inherits=TRUE))
         stop(sprintf('unable to find variable "%s"', sym))
-      assign(sym, get(sym, envir, inherits=TRUE),
-             pos=exportenv, inherits=FALSE)
+      val <- get(sym, envir, inherits=TRUE)
+      if (is.function(val) &&
+          (identical(environment(val), .GlobalEnv) ||
+           identical(environment(val), envir))) {
+        # Changing this function's environment to exportenv allows it to
+        # access/execute any other functions defined in exportenv.  This
+        # has always been done for auto-exported functions, and not
+        # doing so for explicitly exported functions results in
+        # functions defined in exportenv that can't call each other.
+        environment(val) <- exportenv
+      }
+      assign(sym, val, pos=exportenv, inherits=FALSE)
     }
   }
 
   # compile the expression if we're using R 2.13.0 or greater
   xpr <- comp(expr, env=envir, options=list(suppressUndefined=TRUE))
 
-  # send exports to workers
-  r <- clusterCall(cl, workerInit, xpr, exportenv, obj$packages)
-  for (emsg in r) {
-    if (!is.null(emsg))
-      stop('worker initialization failed: ', emsg)
-  }
+  if (! preschedule) {
+    # send exports to workers
+    r <- clusterCall(cl, workerInit, xpr, exportenv, obj$packages)
+    for (emsg in r) {
+      if (!is.null(emsg))
+        stop('worker initialization failed: ', emsg)
+    }
 
-  # execute the tasks
-  results <- clusterApplyLB(cl, argsList, evalWrapper)
+    # execute the tasks
+    argsList <- as.list(it)
+    results <- clusterApplyLB(cl, argsList, evalWrapper)
+  } else {
+    # convert argument iterator into a list of lists
+    argsList <- splitList(as.list(it), length(cl))
+
+    # execute the tasks
+    results <- do.call(c, clusterApply(cl, argsList, workerPreschedule,
+                                       xpr, exportenv, obj$packages))
+  }
 
   # call the accumulator with all of the results
   tryCatch(accumulator(results, seq(along=results)), error=function(e) {
