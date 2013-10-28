@@ -35,10 +35,14 @@ makeDotsEnv <- function(...) {
 
 .doSnowGlobals <- new.env(parent=emptyenv())
 
-workerInit <- function(expr, exportenv, packages) {
+workerInit <- function(expr, exportenv, packages, attach=FALSE) {
   assign('expr', expr, .doSnowGlobals)
   assign('exportenv', exportenv, .doSnowGlobals)
-  parent.env(.doSnowGlobals$exportenv) <- globalenv()
+  exportEnv <- .doSnowGlobals$exportenv
+  parent.env(exportEnv) <- globalenv()
+  if (attach) {
+	attach(exportEnv)
+  }
 
   tryCatch({
     for (p in packages)
@@ -56,6 +60,12 @@ evalWrapper <- function(args) {
   exportEnv <- .doSnowGlobals$exportenv
   lapply(names(args), function(n) assign(n, args[[n]], pos=.doSnowGlobals$exportenv))
   tryCatch(eval(.doSnowGlobals$expr, envir=.doSnowGlobals$exportenv), error=function(e) e)
+}
+
+workerCleanup <- function() {
+	if ("exportEnv" %in% search()) {
+		detach(exportEnv)
+	}
 }
 
 # This function takes the place of workerInit and evalWrapper when
@@ -96,6 +106,7 @@ comp <- if (getRversion() < "2.13.0") {
 doSNOW <- function(obj, expr, envir, data) {
   cl <- data
   preschedule <- FALSE
+  attachExportEnv <- FALSE
 
   if (!inherits(obj, 'foreach'))
     stop('obj must be a foreach object')
@@ -107,7 +118,7 @@ doSNOW <- function(obj, expr, envir, data) {
   options <- obj$options$snow
   if (!is.null(options)) {
     nms <- names(options)
-    recog <- nms %in% c('preschedule')
+    recog <- nms %in% c('preschedule', 'attachExportEnv')
     if (any(!recog))
       warning(sprintf('ignoring unrecognized snow option(s): %s',
                       paste(nms[!recog], collapse=', ')), call.=FALSE)
@@ -120,6 +131,16 @@ doSNOW <- function(obj, expr, envir, data) {
         if (obj$verbose)
           cat(sprintf('bundling all tasks into %d chunks\n', length(cl)))
         preschedule <- options$preschedule
+      }
+    }
+	if (!is.null(options$attachExportEnv)) {
+      if (!is.logical(options$attachExportEnv) ||
+          length(options$attachExportEnv) != 1) {
+        warning('attachExportEnv must be logical value', call.=FALSE)
+      } else {
+        if (obj$verbose)
+          cat("attaching export environment\n")
+        attachExportEnv <- options$attachExportEnv
       }
     }
   }
@@ -185,7 +206,7 @@ doSNOW <- function(obj, expr, envir, data) {
 
   if (! preschedule) {
     # send exports to workers
-    r <- clusterCall(cl, workerInit, xpr, exportenv, obj$packages)
+    r <- clusterCall(cl, workerInit, xpr, exportenv, obj$packages, attachExportEnv)
     for (emsg in r) {
       if (!is.null(emsg))
         stop('worker initialization failed: ', emsg)
@@ -194,6 +215,11 @@ doSNOW <- function(obj, expr, envir, data) {
     # execute the tasks
     argsList <- as.list(it)
     results <- clusterApplyLB(cl, argsList, evalWrapper)
+		
+	# clean up the workers
+	if (attachExportEnv){
+	  clusterCall(cl, workerCleanup)
+	}
   } else {
     # convert argument iterator into a list of lists
     argsList <- splitList(as.list(it), length(cl))

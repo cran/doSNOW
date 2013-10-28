@@ -1,2 +1,2 @@
 export(registerDoSNOW)
-import(foreach)
+import(foreach, iterators, snow)

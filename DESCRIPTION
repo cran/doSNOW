@@ -1,7 +1,7 @@
 Package: doSNOW
 Type: Package
 Title: Foreach parallel adaptor for the snow package
-Version: 1.0.7
+Version: 1.0.9
 Author: Revolution Analytics
 Maintainer: Revolution Analytics <packages@revolutionanalytics.com>
 Description: Provides a parallel backend for the %dopar% function using
@@ -12,8 +12,8 @@ Suggests: compiler
 License: GPL-2
 Repository: CRAN
 Repository/R-Forge/Project: dosnow
-Repository/R-Forge/Revision: 10
-Repository/R-Forge/DateTimeStamp: 2013-05-28 01:35:10
-Date/Publication: 2013-06-06 11:07:47
-Packaged: 2013-05-28 02:15:10 UTC; rforge
+Repository/R-Forge/Revision: 12
+Repository/R-Forge/DateTimeStamp: 2013-10-28 18:44:35
+Date/Publication: 2013-10-29 22:41:22
+Packaged: 2013-10-28 19:15:26 UTC; rforge
 NeedsCompilation: no
