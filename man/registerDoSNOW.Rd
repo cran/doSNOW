@@ -14,5 +14,11 @@ registerDoSNOW(cl)
 \seealso{
   \code{\link[snow]{makeCluster}}
 }
-
+\examples{
+cl <- makeCluster(2, type="SOCK")
+registerDoSNOW(cl)
+m <- matrix(rnorm(9), 3, 3)
+foreach(i=1:nrow(m), .combine=rbind) %dopar%  (m[i,] / mean(m[i,]))
+stopCluster(cl)
+}
 \keyword{utilities}
