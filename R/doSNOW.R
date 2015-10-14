@@ -149,6 +149,7 @@ doSNOW <- function(obj, expr, envir, data) {
   cl <- data
   preschedule <- FALSE
   attachExportEnv <- FALSE
+  progressWrapper <- function(...) NULL
 
   if (!inherits(obj, 'foreach'))
     stop('obj must be a foreach object')
@@ -160,7 +161,7 @@ doSNOW <- function(obj, expr, envir, data) {
   options <- obj$options$snow
   if (!is.null(options)) {
     nms <- names(options)
-    recog <- nms %in% c('preschedule', 'attachExportEnv')
+    recog <- nms %in% c('preschedule', 'attachExportEnv', 'progress')
     if (any(!recog))
       warning(sprintf('ignoring unrecognized snow option(s): %s',
                       paste(nms[!recog], collapse=', ')), call.=FALSE)
@@ -175,6 +176,7 @@ doSNOW <- function(obj, expr, envir, data) {
         preschedule <- options$preschedule
       }
     }
+
     if (!is.null(options$attachExportEnv)) {
       if (!is.logical(options$attachExportEnv) ||
           length(options$attachExportEnv) != 1) {
@@ -184,6 +186,32 @@ doSNOW <- function(obj, expr, envir, data) {
           cat("attaching export environment\n")
         attachExportEnv <- options$attachExportEnv
       }
+    }
+
+    if (!is.null(options$progress)) {
+      makeProgressWrapper <- function() {
+        tryCatch({
+          progress <- match.fun(options$progress)
+          if (obj$verbose)
+            cat("progress will be called as each result is returned\n")
+          iargs <- seq_along(formals(progress))
+          function(...) {
+            tryCatch({
+              do.call('progress', list(...)[iargs])
+            },
+            error=function(e) {
+              warning('progress function failed: ', conditionMessage(e),
+                      immediate.=TRUE, call.=FALSE)
+            })
+          }
+        },
+        error=function(e) {
+          warning('unable to create progress function: ', conditionMessage(e),
+                  immediate.=TRUE, call.=FALSE)
+          function(...) NULL
+        })
+      }
+      progressWrapper <- makeProgressWrapper()
     }
   }
 
@@ -262,8 +290,65 @@ doSNOW <- function(obj, expr, envir, data) {
     }
 
     # execute the tasks
-    argsList <- as.list(it)
-    results <- clusterApplyLB(cl, argsList, evalWrapper)
+    nsub <- 0
+    nfin <- 0
+
+    tryCatch({
+      # send a task to each of the workers to get them started
+      while (nsub < length(cl)) {
+        sendCall(cl[[nsub+1]], evalWrapper, list(nextElem(it)), tag=nsub+1)
+        nsub <- nsub + 1
+      }
+
+      # loop until we run out of tasks
+      repeat {
+        # wait for a result
+        d <- recvOneResult(cl)
+        nfin <- nfin + 1
+
+        # submit another task to the worker that returned the result
+        sendCall(cl[[d$node]], evalWrapper, list(nextElem(it)), tag=nsub+1)
+        nsub <- nsub + 1
+
+        # process the result
+        tryCatch(accumulate(it, d$value, d$tag), error=function(e) {
+          cat('error calling combine function:\n')
+          print(e)
+        })
+
+        # call the user's progress function
+        progressWrapper(nfin, d$tag)
+      }
+    },
+    error=function(e) {
+      # check for StopIteration
+      if (!identical(conditionMessage(e), 'StopIteration'))
+        stop(e)
+    })
+
+    # process the last received result (if we received any)
+    if (nfin > 0) {
+      tryCatch(accumulate(it, d$value, d$tag), error=function(e) {
+        cat('error calling combine function:\n')
+        print(e)
+      })
+
+      # call the user's progress function
+      progressWrapper(nfin, d$tag)
+    }
+
+    # wait for and process all remaining results
+    while (nfin < nsub) {
+      d <- recvOneResult(cl)
+      nfin <- nfin + 1
+      tryCatch(accumulate(it, d$value, d$tag), error=function(e) {
+        cat('error calling combine function:\n')
+        print(e)
+      })
+
+      # call the user's progress function
+      progressWrapper(nfin, d$tag)
+    }
 
     # clean up the workers
     if (attachExportEnv) {
@@ -277,13 +362,12 @@ doSNOW <- function(obj, expr, envir, data) {
     results <- do.call(c, clusterApply(cl, argsList, workerPreschedule,
                                        xpr, exportenv, pkgname,
                                        obj$packages))
+    # call the accumulator with all of the results
+    tryCatch(accumulator(results, seq(along=results)), error=function(e) {
+      cat('error calling combine function:\n')
+      print(e)
+    })
   }
-
-  # call the accumulator with all of the results
-  tryCatch(accumulator(results, seq(along=results)), error=function(e) {
-    cat('error calling combine function:\n')
-    print(e)
-  })
 
   # check for errors
   errorValue <- getErrorValue(it)

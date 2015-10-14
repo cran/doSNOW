@@ -14,6 +14,7 @@ registerDoSNOW(cl)
 \seealso{
   \code{\link[snow]{makeCluster}}
 }
+% donttest added; may fail due to closed ports. Tested via doRUnit.R
 \examples{\donttest{
 cl <- makeCluster(2, type="SOCK")
 registerDoSNOW(cl)
