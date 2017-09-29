@@ -1,8 +1,8 @@
-b1e72644bb3761ac69d4b55b4c758dac *DESCRIPTION
+1be1c41d8edbeebd8022ca57b21fe7e7 *DESCRIPTION
 cf16374e6be19fe2f3eca95d4afdfadb *NAMESPACE
 a5710f7696c510782841a66b493b2026 *NEWS
 cbf59d25712e02bfd825d6395a002bc0 *R/doSNOW.R
 e45c2ef63f7283eb4ab97e2cc19f4adb *inst/examples/boot.R
-17029f2363a768b483bb8a1a0c1f465a *inst/unitTests/options.R
+7dbf622b6ba4ecc10d70cc9605d7fde8 *inst/unitTests/options.R
 cf5fa97eac969a9a6da91524973dbf15 *man/registerDoSNOW.Rd
 c9db472cd4f48eb03b81fd6c24fe6159 *tests/doRUnit.R
