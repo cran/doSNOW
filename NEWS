@@ -1,6 +1,9 @@
 NEWS/ChangeLog for doSNOW
 -----------------------------
 
+1.0.16 2017-12-08
+    o  Modified test report path for compliance with CRAN policies.
+	   
 1.0.11 2014-02-01
     o  Modified to work better when a foreach loop is executed 
        in a package (courtesy of Steve Weston)
