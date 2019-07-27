@@ -226,7 +226,10 @@ doSNOW <- function(obj, expr, envir, data) {
     new.env(parent=emptyenv())
   })
   noexport <- union(obj$noexport, obj$argnames)
-  getexports(expr, exportenv, envir, bad=noexport)
+  packages <- getexports(expr, exportenv, envir, bad=noexport)
+  if(obj$verbose)
+	cat(sprintf('discovered package(s): %s\n',
+                  paste(packages, collapse=', ')))
   vars <- ls(exportenv)
   if (obj$verbose) {
     if (length(vars) > 0) {
@@ -280,6 +283,13 @@ doSNOW <- function(obj, expr, envir, data) {
   else
     NULL
 
+
+  packages = c(packages, obj$packages)
+  if (obj$verbose) {
+	cat(sprintf('explicitly exporting package(s): %s\n',
+                  paste(packages, collapse=', ')))
+  }
+	
   if (! preschedule) {
     # send exports to workers
     r <- clusterCall(cl, workerInit, xpr, exportenv, pkgname,
