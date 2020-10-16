@@ -1,6 +1,12 @@
 NEWS/ChangeLog for doSNOW
 -----------------------------
 
+1.0.19 2020-10-12
+    o  Maintainer change (Michelle Wallig; Michelle.Wallig@microsoft.com).
+
+1.0.18 2019-07-27
+    o  Maintainer change (Hong Ooi; hongooi@microsoft.com).
+
 1.0.17 2018-04-04
     o  Changes to support enhanced exports via future (if available).
 
